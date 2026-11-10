@@ -1,0 +1,286 @@
+\documentclass[12pt]{article}
+%\usepackage{phase1}
+\usepackage{graphicx}
+\setlength{\topmargin}{1.5in}
+\usepackage{geometry}     
+\usepackage[table,svgnames]{xcolor}   
+\usepackage{amsmath, amssymb}
+\usepackage{float}
+\usepackage{xspace}
+\usepackage{subfigure}
+\usepackage{listings}
+\usepackage{multirow}
+\usepackage[hyphens]{url}
+\usepackage{listings}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=blue,
+}
+ 
+\urlstyle{same}
+\definecolor{mygray}{rgb}{0.98,0.95,0.98}
+\lstset{basicstyle=\footnotesize\ttfamily,
+        frame=none,
+        columns=flexible,
+        breaklines=true,
+        literate={~}{{\fontfamily{ptm}\selectfont \textasciitilde}}1 {'}{\textquotesingle}1,
+        backgroundcolor=\color{mygray}}
+\makeindex
+
+\geometry{left=0.75in, right=0.75in, top=0.75in, bottom=0.75in}
+
+\newcommand{\red}[1]{{\color{red} #1}}
+
+
+\begin{document}
+
+
+\vspace{-1cm}
+\title{Updates to the Caltech Stellar Group Forced Photometry Pipeline\\ \vspace{0.5cm}
+\normalsize{Z. Vanderbosch et al.}}
+\vspace{-5cm}
+\date{\today}
+\maketitle
+
+\section{Pipeline Updates}
+
+Since the original forced photometry pipeline was first developed and run by Przemek Mroz and Kevin Burdge, I have made several updates, both to make the pipeline run more efficiently and to enhance the data products provided in the final HDF5 matchfiles. Provided here is a description of the major components of the updates:
+
+\begin{enumerate}
+    \item {\bf New with DR10 Pipeline - May 2022}: The biggest limitation on pipeline speed is bandwidth (i.e. downloading the difference and science images from IRSA), so I modified the pipeline to skip the downloading and processing of images when a {\tt psf.cat} file, which stores the photometry for all sources from a single difference image, is already available for that epoch. These {\tt psf.cat} files are found in the {\it res} directory associated with a given quadrant$+$filter. E.g., on the hypernova computer, the {\tt psf.cat} files for Field$=562$, CCD$=4$, Quadrant$=3$, Filter$=${\it g} can be found in the following directory:
+    \begin{center}
+        {\tt /matchfiles/data/res/ztf\_000562\_zg\_c04\_q3}
+    \end{center}
+    To further speed up the pipeline, one can also feed in date restrictions to the pipeline using the {\tt --jd\_start} and {\tt --jd\_end} command line arguments. This way, the pipeline won't even try to look for any images outside the provided date range. Without these ranges set, the pipeline will look for new images over the entire ZTF operations timeline, including older images it might have tried to download and process during the last pipeline iteration but were either not available for download or too poor-quality to process. Searching for older images will take time, but occasionally IPAC/IRSA will update their database with older images that have been reprocessed and now pass quality checks. Also, as more sparsely covered fields (e.g. secondary-grid fields or i-band fields) that lack reference images accumulate enough epochs, a new reference image will be generated allowing for difference images to be created that may span the full ZTF operations timeline. So, to have a complete light curve database each time the pipeline is run, no date restrictions should be applied.
+
+    \item {\bf New with DR18 Pipeline - December 2023}: The pipeline now saves per-exposure metadata into the ``exposures'' table of the HDF5 files to facilitate more customized light curve filtering on the user end. Table~\ref{tab:hdf5_new} shows the full HDF5 file structure, with the new columns in the ``exposures'' table highlighted in yellow. These new columns do not significantly increase the HDF5 file sizes, since the exposures table has column lengths equal only to the number of exposures per quadrant ($10^2-10^4$). In comparison, the ``sources'' table has column lengths equal to the number of sources per quadrant ($10^4-10^6$) while the ``sourcedata'' table has column lengths equal to the number of sources multiplied by the number of exposures ($10^6-10^{10}$).
+
+    \begin{table}[ht!]
+    \centering
+    \scriptsize
+    \begin{tabular}{ |p{3.5cm}p{2.5cm}p{9cm}| }
+     \hline
+     \multicolumn{3}{|l|}{/data} \\
+     \hline
+     \multicolumn{3}{|l|}{\hspace{0.5cm}/data/exposures} \\
+     \hspace{1.0cm}jd          &   double           &   julian date \\
+     \hspace{1.0cm}bjd         &   double           &   barycentric julian date, corrected to central coordinates of the quadrant \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}filterid    &   unsigned short   &   filter ID (1=$g$, 2=$r$, 3=$i$) \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}exptime     &   float            &   exposure time (s) \\
+     \hspace{1.0cm}pid         &   double           &   ZTF program ID (1=public, 2=partnership, 3=Caltech) \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}field       &   unsigned short   &   field ID \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}ccd         &   unsigned short   &   CCD ID \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}quad        &   unsigned short   &   quadrant ID \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}imstat      &   unsigned short   &   image status (0=bad, 1=good) \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}infobits    &   unsigned long    &   image quality bits \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}seeing      &   float            &   seeing (arcseconds) \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}mzpsci      &   double           &   science image zero-point magnitude \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}mzpsciunc   &   double           &   science image zero-point magnitude uncertainty \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}mzpscirms   &   double           &   science image zero-point magnitude RMS \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}clrco       &   double           &   science image color coefficient \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}clrcounc    &   double           &   science image color coefficient uncertainty \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}maglim      &   float            &   science image limiting magnitude \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}airmass     &   float            &   science image airmass \\
+     \rowcolor{LightGoldenrodYellow}
+     \hspace{1.0cm}nps1matches &   unsigned long    &   number of PS1 calibrators in science image \\
+     \hline
+     \multicolumn{3}{|l|}{\hspace{0.5cm}/data/sources} \\
+     \hspace{1.0cm}ps1\_id       &   unsigned long   &   Pan-STARRS1 (PS1) ID \\
+     \hspace{1.0cm}ra            &   float           &   PS1 Mean Object Right Ascension \\
+     \hspace{1.0cm}decl          &   float           &   PS1 Mean Object Declination \\
+     \hspace{1.0cm}mag\_ref      &   float           &   DoPHOT magnitude of source in reference image \\
+     \hspace{1.0cm}mag\_err\_ref &   float           &   DoPHOT reference mag uncertainty \\
+     \hspace{1.0cm}objtype       &   unsigned short  &   DoPHOT object type (1=star-like, $>$1=poor) \\
+     \hline
+     \multicolumn{3}{|l|}{\hspace{0.5cm}/data/sourcedata} \\
+     \hspace{1.0cm}flux       &   float           &   Difference flux \\
+     \hspace{1.0cm}flux\_err  &   float           &   Difference flux uncertainty \\
+     \hspace{1.0cm}flag       &   unsigned short  &   Flag (1 if flux=NaN, 0 otherwise) \\
+     \hline
+    \end{tabular}
+    \caption{HDF5 file structure with new columns highlighted in yellow.}
+    \label{tab:hdf5_new}
+    \end{table}
+
+    Also, it is worth noting that even though per-exposure metadata is now provided in the HDF5 files, we still apply several quality cuts to the images while running the pipeline and only process images that pass those cuts. Table~\ref{tab:constraints} lists the quality cuts applied to images in each filter. We have considered relaxing or removing these cuts completely, but doing so would significantly increase the total size of the HDF5 files, by up to 90\% in the case of no quality cuts at all.
+
+    \begin{table}[ht!]
+    \centering
+    % \caption{Image quality cuts applied during pipeline operation}
+    % \vspace{2mm}
+    \footnotesize
+    \begin{tabular}{ c|c|c }
+     \hline
+     $g$-band & $r$-band & $i$-band \\
+     \hline
+     infobits $=0$         &   infobits $=0$        &   infobits $=0$       \\
+     image status $=1$     &   image status $=1$    &   image status $=1$   \\
+     exptime $<31$\,s      &   exptime $<31$\,s     &   exptime $<31$\,s    \\
+     seeing $<3.0''$       &   seeing $<3.0''$      &   seeing $<3.0''$     \\
+     PS1 Matches $>80$    &   PS1 Matches $>120$    &   PS1 Matches $>100$  \\
+     $m_{\mathrm{ZP}}$ RMS $<0.05$\,mag      &   $m_{\mathrm{ZP}}$ RMS $<0.06$\,mag     &   $m_{\mathrm{ZP}}$ RMS $<0.06$\,mag    \\
+     $m_{\mathrm{ZP}} < 26.70-0.20\times$airmass      &   $m_{\mathrm{ZP}} < 26.65-0.15\times$airmass     &   $m_{\mathrm{ZP}} < 26.60-0.07\times$airmass    \\
+     $m_{\mathrm{ZP}} > 25.80-0.15\times$airmass      &   $m_{\mathrm{ZP}} > 25.80-0.15\times$airmass     &   $m_{\mathrm{ZP}} > 25.80-0.07\times$airmass    \\
+    \end{tabular}
+    \caption{Image quality cuts applied during pipeline operation}
+    \label{tab:constraints}
+    \end{table}
+
+    Also worth noting is that the exposure time constraint above limits the pipeline to just the standard 30-s images. These are the vast majority of ZTF exposures, but ZTF does occasionally take longer exposures (e.g. 90-s and 300-s) for specific partnership or Caltech programs. If included with the pipeline as-is, however, these data points may be unreliable, especially when converting from difference flux to ZTF magnitudes, since we are only using the standard reference images built from 30-s science images to determine the reference magnitude of each source.
+
+    Lastly, it is worth describing where the pipeline gets the exposure metadata from. In the original pipeline, all exposure metadata was taken directly from the FITS headers of each downloaded science image. This metadata was used to apply the quality constraints shown in Table~\ref{tab:constraints}, but was not saved anywhere once the pipeline finished processing a given quadrant and filter. So when running the pipeline again, the only way to get the metadata for images that had already been processed was to re-download the images, which would be very time consuming. To get around this, I modified the pipeline to take a hybrid approach. For all new images that have yet to be processed, the exposure metadata still comes from the FITS headers since these images have to be downloaded anyway. For images that had already been processed in a previous run of the pipeline, the idea is simply to grab the metadata from an online database of ZTF exposure metadata. There are several such database options, but unfortunately there is no single database table that has all the metadata of interest. So the pipeline has to perform three queries, one of the "ZTF\_ops" table on Caltech's Gloria or Melman machines, one of the "ZTF\_Exposures" table on the same machines, and one of the IRSA ZTF science products table. In most cases this provides all of the metadata needed, but occasionally some exposures aren't found in all three queries and the metadata is incomplete. In such cases, the difference images for these exposures are re-downloaded in order to acquire the complete set of metadata, but this is typically a very small number of images ($<10$) if any, and the overall time spent on acquiring exposure metadata for previously processed images takes just a few seconds per quadrant. 
+    
+    All exposure metadata is now being saved into a file called {\tt epochs.txt} found within the {\tt res/} directory of each quadrant, which is what gets loaded to populate the HDF5 file's ``exposures'' table, so these queries won't need to be re-run during subsequent iterations of the pipeline. One caveat to this, however, is that the {\sc infobits} values associated with each image are occasionally updated, meaning an image could go from being considered good quality to having a potential flaw. Re-running these queries would ensure the most up-to-date information in that regard. Lastly, in the most recent pipeline iteration ({\bf DR18, December 2023}), I did not have the pipeline remove older photometry where the image {\sc infobits} changed from $0$ to $>0$, so the light curve database will have some data points associated with {\sc infobits}$\,{>}\,0$ images even though our image quality constraints require {\sc infobits}$\,{=}\,0$.
+
+    \item {\bf New with DR18 Pipeline - December 2023}: To handle the new HDF5 file structure, I have also updated the {\tt getobj} script that we use to extract light curves for single sources from HDF5 files. It works the same way as before but has one additional command line option ({\tt -d}). When used, this option will also print out all of the new exposure metadata stored within the ``exposures'' table. Usage for {\tt getobj} now looks like the following:
+
+\vspace{0.2cm}
+\begin{lstlisting}[language=bash,linewidth=9.5cm,frame=single,xleftmargin=20pt]
+ > getobj [-m] [-d] HDF5_filename PanSTARRS_id
+\end{lstlisting}
+    
+    \newpage
+    \item {\bf New with DR18 Pipeline - December 2023}: I have begun the process of calculating a variety of difference flux light curve statistics and querying the SCoPE DR5 feature table ({\em ZTF\_source\_features\_DR5}) on the Gloria machine for periodicity information. For fields 245 through 401, these periodicity and variability metrics are stored within each quadrant+filter's {\tt res/} directory in a file named {\tt lc\_metrics.txt}. A list of the information stored in these files can be seen as the yellow-highlited rows in Table~\ref{tab:hdf5_with_metrics}. After field 401, I turned off the metric calculation portion of the pipeline except for the initial 20 fields that were processed as part of the SCoPE project (see \href{https://ui.adsabs.harvard.edu/abs/2021AJ....161..267V/abstract}{van Roestel et al. 2021}) as it was using up a considerable amount of time, especially for crowded fields.
+    
+    For a given quadrant, when querying Gloria for periodicity information, it is often the case that multiple entries match up with a single source. That's because the SCoPE project calculated periods and light curve statistics for every ZTF light curve individually, and a single source can have multiple associated light curves (i.e. one for every quadrant$+$filter combination that covers it). Unfortunately, for a given quadrant, there was no obvious way to determine what filter ($g$, $r$, or $i$) each entry in the {\it ZTF\_source\_features\_DR5} table was associated with. So, after cross-matching the SCoPE entries to the sources being processed by the pipeline within a 1-arcsecond radius, if multiple SCoPE entries matched, I chose the {\tt medianmag}, {\tt period}, and {\tt period\_sig} values from the SCoPE entry based on the largest number of data points.
+
+    At the moment, I'm not sure whether it's best to use light curve metrics based on difference flux or calibrated ZTF magnitudes for source selection or classification. A proper comparison is needed, which is the plan for the metrics that have been calculated thus far.
+
+\end{enumerate}
+
+
+\section{The Effects of Including Periodicity/Variability Metrics in HDF5 Files and Relaxing Image Quality Constraints}
+
+Prior to running the DR18 pipeline update, we considered the possibility of including SCoPE periodicity and difference flux variability metrics in the HDF5 files themselves to enable easier identification and analysis of sources of interest based on variability information. This would involve adding additional columns to the HDF5 ``sources'' table, as shown in Table~\ref{tab:hdf5_with_metrics}. Again, this wouldn't result in a major increase in the HDF5 file sizes since the ``sourcedata'' table still accounts for the majority of the file size, but it would be a more significant addition compared to adding the exposure metadata. This section presents a comparison of HDF5 file sizes before and after adding both the exposure metadata and variability information, and also explores the effects of completely relaxing the image quality constraints on file size.
+
+\vspace{0.2cm}
+\noindent
+Table~\ref{tab:filesize} shows a comparison of HDF5 file sizes for a variety of ZTF fields between the original pipeline applied to ZTF DR10 images (no exposure metadata or variability metrics) and pipelines that add all metadata and metrics into the HDF5 files, both with keeping the original image quality constraints, and completely relaxing those constraints. When running the pipeline using the same date limits as those used for DR10 but including the new image metadata columns and light curve metrics, the average increase in HDF5 file size was just 3.6\%. When changing the date limits to include up to DR17 data, the average increase in file size is 25\%. So, adding the metadata is a minor increase in file size compared to the effect of increasing the number of epochs, since this impacts the size of the large ``sourcedata'' table. When completely relaxing the image-quality constraints and allowing the pipeline to process all available images from IRSA, I found the average increase in file size compared to the original DR10 HDF5 files to be around 90\%, as many more epochs were being included. The HDF5 file from the most crowded region examined, field 281, dominates the file size increase.
+
+\begin{table}[ht!]
+\centering
+\scriptsize
+\begin{tabular}{ |p{3.5cm}p{2.5cm}p{9cm}| }
+ \hline
+ \multicolumn{3}{|l|}{/data} \\
+ \hline
+ \multicolumn{3}{|l|}{\hspace{0.5cm}/data/exposures} \\
+ \hspace{1.0cm}jd          &   double           &   julian date \\
+ \hspace{1.0cm}bjd         &   double           &   barycentric julian date, corrected to central coordinates of the quadrant \\
+ \hspace{1.0cm}filterid    &   unsigned short   &   filter ID (1=$g$, 2=$r$, 3=$i$) \\
+ \hspace{1.0cm}exptime     &   float            &   exposure time (s) \\
+ \hspace{1.0cm}pid         &   double           &   ZTF program ID (1=public, 2=partnership, 3=Caltech) \\
+ \hspace{1.0cm}field       &   unsigned short   &   field ID \\
+ \hspace{1.0cm}ccd         &   unsigned short   &   CCD ID \\
+ \hspace{1.0cm}quad        &   unsigned short   &   quadrant ID \\
+ \hspace{1.0cm}imstat      &   unsigned short   &   image status (0=bad, 1=good) \\
+ \hspace{1.0cm}infobits    &   unsigned long    &   image quality bits \\
+ \hspace{1.0cm}seeing      &   float            &   seeing (arcseconds) \\
+ \hspace{1.0cm}mzpsci      &   double           &   science image zero-point magnitude \\
+ \hspace{1.0cm}mzpsciunc   &   double           &   science image zero-point magnitude uncertainty \\
+ \hspace{1.0cm}mzpscirms   &   double           &   science image zero-point magnitude RMS \\
+ \hspace{1.0cm}clrco       &   double           &   science image color coefficient \\
+ \hspace{1.0cm}clrcounc    &   double           &   science image color coefficient uncertainty \\
+ \hspace{1.0cm}maglim      &   float            &   science image limiting magnitude \\
+ \hspace{1.0cm}airmass     &   float            &   science image airmass \\
+ \hspace{1.0cm}nps1matches &   unsigned long    &   number of PS1 calibrators in science image \\
+ \hline
+ \multicolumn{3}{|l|}{\hspace{0.5cm}/data/sources} \\
+ \hspace{1.0cm}ps1\_id       &   unsigned long   &   Pan-STARRS1 (PS1) ID \\
+ \hspace{1.0cm}ra            &   float           &   PS1 Mean Object Right Ascension \\
+ \hspace{1.0cm}decl          &   float           &   PS1 Mean Object Declination \\
+ \hspace{1.0cm}mag\_ref      &   float           &   DoPHOT magnitude of source in reference image \\
+ \hspace{1.0cm}mag\_err\_ref &   float           &   DoPHOT reference mag uncertainty \\
+ \hspace{1.0cm}objtype       &   unsigned short  &   DoPHOT object type (1=star-like, $>$1=poor) \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}medianmag     &   double          &   SCOPE DR5 median magnitude \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}period        &   double          &   SCOPE DR5 best period \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}period\_sig   &   double          &   SCOPE DR5 significance of best period \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}stdev         &   double          &   standard deviation \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}ppavg         &   double          &   average point-to-point scatter \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}mssd          &   double          &   mean square successive deviation \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}skew          &   double          &   skew (third statistical moment) \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}skewp         &   double          &   Pearson skew \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}kurtosis      &   double          &   kurtosis (fourth statistical moment) \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}normev        &   double          &   normalized excess variance \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}vonn          &   double          &   von Neumann ratio (= ppavg / stdev) \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}stetsonj      &   double          &   Stetson J metric \\
+ \rowcolor{LightGoldenrodYellow}
+ \hspace{1.0cm}stetsonk      &   double          &   Stetson K metric \\
+ \hline
+ \multicolumn{3}{|l|}{\hspace{0.5cm}/data/sourcedata} \\
+ \hspace{1.0cm}flux       &   float           &   Difference flux \\
+ \hspace{1.0cm}flux\_err  &   float           &   Difference flux uncertainty \\
+ \hspace{1.0cm}flag       &   unsigned short  &   Flag (1 if flux=NaN, 0 otherwise) \\
+ \hline
+\end{tabular}
+\caption{\small Possible HDF5 file structure including periodicity and variability metrics, with all additional columns relative to Table~\ref{tab:hdf5_new} highlighted in yellow.}
+\label{tab:hdf5_with_metrics}
+\end{table}
+
+
+
+
+\begin{table}[ht!]
+\centering
+\scriptsize
+\begin{tabular}{ c|c|c|c|r|r|r|r|r|r|r|r }
+\multicolumn{5}{c}{} & \multicolumn{3}{|c|}{\# of Images Processed} & \multicolumn{4}{c}{HDF5 File Sizes (Mb)} \\
+\cline{6-12}
+ field & ccd & quad & filt & N$_{\mathrm{PS1}}$ & DR10 & DR17 & DR17 All & DR10  &  DR10+ &  DR17+ & DR17+All \\
+ \hline
+ 245  &  1  &  1  &  $g$  &     9876  &  105     &  138  &  197  &    7.7  &   8.3  &  10.5  &   14.6  \\
+ 263  &  4  &  2  &  $g$  &    50175  &   24     &   37  &   99  &    8.2  &  13.9  &  18.8  &   41.7  \\
+ 281  & 10  &  3  &  $g$  &   737552  &   42     &   53  &  115  &  243.7  & 244.6  & 344.9  &  662.1  \\
+ 487  &  4  &  3  &  $g$  &   150698  &  292     &  325  &  408  &  324.4  & 335.3  & 371.3  &  463.8  \\
+ 562  &  4  &  3  &  $g$  &    38937  &  228     &  258  &  332  &   65.1  &  68.1  &  76.2  &   97.2  \\
+ 699  &  4  &  3  &  $g$  &    21474  &  277     &  324  &  377  &   40.7  &  42.2  &  48.8  &   56.7  \\
+ 755  &  4  &  1  &  $g$  &    11865  &  487     &  533  &  667  &   42.5  &  43.4  &  47.3  &   59.4  \\
+ 842  &  4  &  3  &  $g$  &    10378  &  286     &  288  &  486  &   21.5  &  22.3  &  22.4  &   37.3  \\
+\end{tabular}
+\caption{\small HDF5 file size changes for a sample of fields. Columns with ``All'' in their labels indicate running the pipeline without applying any image quality constraints. Columns with ``$+$'' in their labels indicate HDF5 files that include all of the new image and source metadata outlined in Table~\ref{tab:hdf5_with_metrics}.}
+\label{tab:filesize}
+\end{table}
+
+
+\newpage 
+\section{Additional Changes under Consideration}
+
+\begin{itemize}
+    \item Adding IDs for sources matched in other catalogs to the ``sources'' table, e.g. {\em Gaia}, SDSS-V, WISE, GALEX, 2MASS.
+    \item Instead of using Pan-STARRS1 coordinates, which pre-date ZTF, cross-match sources with {\em Gaia} and use {\em Gaia} coordinates and proper motion to define coordinates for each source at the epoch matching either the midpoint of the ZTF survey or the average epoch of each quadrant/filter's reference image. This would lessen the impact of proper motion on the measured light curves, but would also mean redoing all of the light curve photometry from scratch which would be time-consuming.
+
+    \item Rerun the {\tt calibrate\_to\_ZTF\_system.py} script to calculate new zero-point magnitude offsets, this time for all bands ($g$, $r$, and $i$). Store the results on schoty and provide a convenience function, or better yet a new {\tt getobj} option, to apply these corrections to the magnitudes currently output by {\tt getobj} when using the {\tt -m} option.
+\end{itemize}
+
+\end{document}

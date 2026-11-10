@@ -1,0 +1,250 @@
+\documentclass[11pt]{article}
+
+\usepackage{graphicx}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{setspace}
+\usepackage{rotating}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage[svgnames]{xcolor}   
+\lstset{basicstyle=\small\ttfamily,
+        frame=none,
+        columns=flexible,
+        breaklines=true,
+        literate={~}{{\fontfamily{ptm}\selectfont \textasciitilde}}1 {'}{\textquotesingle}1,
+        backgroundcolor=\color{white}}
+
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=blue,
+}
+
+\setlength{\textwidth}{\paperwidth}
+\addtolength{\textwidth}{-2in}
+\setlength{\oddsidemargin}{0pt}
+\setlength{\evensidemargin}{0pt}
+
+\setlength{\headheight}{25pt}
+\setlength{\headsep}{35pt}
+\setlength{\topmargin}{0in}
+\addtolength{\topmargin}{-\headheight}
+\addtolength{\topmargin}{-\headsep}
+\setlength{\footskip}{29pt}
+\setlength{\textheight}{\paperheight}
+\addtolength{\textheight}{-2.2in}
+
+\newenvironment{myitemize}
+{ \begin{itemize}
+    \setlength{\itemsep}{0pt}
+    \setlength{\parskip}{0pt}
+    \setlength{\parsep}{0pt}     }
+{ \end{itemize}                  } 
+
+\setlength{\marginparwidth}{.5in}
+\setlength{\marginparsep}{5pt}
+
+
+% Add Title, Authors, Date
+\title{New ZTF Forced Photometry Pipeline}
+\author{
+    Przemek Mr\'oz\\ California Institute of Technology
+    \and
+    Zach Vanderbosch\\ California Institute of Technology
+}
+\date{January 26, 2021\\updated: \today}
+
+
+% Let's begin
+\begin{document}
+
+\maketitle
+
+\section{Matchfile structure}
+
+Data are stored in the HDF5 format. There is one file per quadrant per filter, and matchfiles are located on the Schoty computer at:
+\begin{center}
+{\tt /gdata/Data/matchfiles/NNNN/data\_NNNN\_CC\_Q\_z[g,r].h5}
+\end{center}
+where NNNN is a four-digit field number, CC is a two-digit CCD number (1--16), and Q is a one-digit quadrant number (1--4).
+
+\vspace{0.2cm}
+The matchfile structure is very simple. Every matchfile contains one group called \texttt{/data/}, which contains three tables: \texttt{/data/exposures}, \texttt{/data/sources}, and \texttt{/data/sourcedata} (see Table~\ref{tab:matchfile}). The \texttt{/data/exposures} table contains 19 columns, the most crucial being {\tt jd} (Julian Date of the mid-exposure), {\tt bjd} (Barycentric Julian Date of the mid-exposure calculated for the position of the center of the field, in the TDB time format), and {\tt pid} (program ID, 1 = public data, 2 = partnership data, 3 = Caltech data). The remaining columns provide additional exposure metadata (see Table~\ref{tab:matchfile} for column descriptions).
+
+\vspace{0.2cm}
+The \texttt{/data/sources} table contains six columns: {\tt ps1\_id} (object identifier, currently this is an identifier from the Pan-STARRS1 DR1 [PS1] source catalog), {\tt ra} (object right ascension in equinox J2000, taken from PS1, column raMean, in degrees), {\tt dec} (object declination in equinox J2000, taken from PS1, column decMean, in degrees), {\tt mag\_ref}, {\tt mag\_err\_ref} (raw magnitude and its uncertainty on the reference image from DoPHOT; see below), and {\tt objtype} (object type from DoPHOT; see below). The source list is taken from the PS1 source catalog. To minimize the number of artifacts and faint sources, I use objects with at least 6 detections in all PS1 filters (nDetections > 5), this reduces the number of objects by 15--25\% (depending on the field) compared to the raw PS1 catalog. The PS1 catalog is deeper than the Gaia~EDR3 catalog, it contains the vast majority of objects visible in the ZTF reference images.
+
+\vspace{0.2cm}
+The photometry of objects on the reference images is extracted using DoPHOT (Schechter, Mateo, \& Saha 1993) in a fixed position mode. To transform the raw magnitudes of an object into a roughly calibrated instrumental system, you need to add a magnitude zero-point:
+$$
+m_{\rm instr} = m_{\rm raw} + ZP.
+$$
+The value of the zero-point is stored as a \texttt{magzp} attribute in the \texttt{/data} group ($ZP=26.275$ in the $r$ band). If you want to transform data to the magnitude scale, you need to check the {\tt objtype} flag (object type from DoPHOT). If {\tt objtype} = 1 (``a perfect star'') these measurements are likely correct. If {\tt objtype} > 1, DoPHOT encountered some problems with extracting the photometry and these measurements may be incorrect. See the DoPHOT manual for more details (Appendix C).
+
+\vspace{0.2cm}
+The \texttt{/data/sourcedata} table contains three columns: {\tt flux}, {\tt flux\_err} (source flux on the difference image and its uncertainty), and {\tt flag} ({\tt flag} = 1 means that the measurement is incorrect, the object was located outside the CCD or there were too few good pixels to reliably measure the flux; {\tt flag} = 0 for good measurements). If {\tt flag} = 1, then {\tt flux} = {\tt flux\_err} = nan. There is one entry in the sourcedata table for every object for every epoch. Data are stored in a way that enables extremely fast access, every light curve is stored in a contiguous chunk on the disk, which maximize the performance of I/O operations. The i-th observation (i = 0..n$_{\mathrm{exp}}{-}1$) of the j-th source (j = 0..n$_{\mathrm{stars}}{-}1$) is stored in the (j*n$_{\mathrm{exp}}{-}1$ + i)-th row of the sourcedata table (n$_{\mathrm{exp}}$ is the number of exposures, n$_{\mathrm{stars}}$ is the number of stars).
+
+\vspace{0.5cm}
+\begin{table}[ht!]
+    \centering
+    \footnotesize
+    \begin{tabular}{ |p{3.5cm}p{2.5cm}p{9cm}| }
+     \hline
+     \multicolumn{3}{|l|}{/data} \\
+     \hline
+     \multicolumn{3}{|l|}{\hspace{0.5cm}/data/exposures} \\
+     \hspace{1.0cm}jd          &   double           &   julian date \\
+     \hspace{1.0cm}bjd         &   double           &   barycentric julian date, corrected to central coordinates of the quadrant \\
+     \hspace{1.0cm}filterid    &   unsigned short   &   filter ID (1=$g$, 2=$r$, 3=$i$) \\
+     \hspace{1.0cm}exptime     &   float            &   exposure time (s) \\
+     \hspace{1.0cm}pid         &   double           &   ZTF program ID (1=public, 2=partnership, 3=Caltech) \\
+     \hspace{1.0cm}field       &   unsigned short   &   field ID \\
+     \hspace{1.0cm}ccd         &   unsigned short   &   CCD ID \\
+     \hspace{1.0cm}quad        &   unsigned short   &   quadrant ID \\
+     \hspace{1.0cm}imstat      &   unsigned short   &   image status (0=bad, 1=good) \\
+     \hspace{1.0cm}infobits    &   unsigned long    &   image quality bits \\
+     \hspace{1.0cm}seeing      &   float            &   seeing (arcseconds) \\
+     \hspace{1.0cm}mzpsci      &   double           &   science image zero-point magnitude \\
+     \hspace{1.0cm}mzpsciunc   &   double           &   science image zero-point magnitude uncertainty \\
+     \hspace{1.0cm}mzpscirms   &   double           &   science image zero-point magnitude RMS \\
+     \hspace{1.0cm}clrco       &   double           &   science image color coefficient \\
+     \hspace{1.0cm}clrcounc    &   double           &   science image color coefficient uncertainty \\
+     \hspace{1.0cm}maglim      &   float            &   science image limiting magnitude \\
+     \hspace{1.0cm}airmass     &   float            &   science image airmass \\
+     \hspace{1.0cm}nps1matches &   unsigned long    &   number of PS1 calibrators in science image \\
+     \hline
+     \multicolumn{3}{|l|}{\hspace{0.5cm}/data/sources} \\
+     \hspace{1.0cm}ps1\_id       &   unsigned long   &   Pan-STARRS1 (PS1) ID \\
+     \hspace{1.0cm}ra            &   float           &   PS1 Mean Object Right Ascension \\
+     \hspace{1.0cm}decl          &   float           &   PS1 Mean Object Declination \\
+     \hspace{1.0cm}mag\_ref      &   float           &   DoPHOT magnitude of source in reference image \\
+     \hspace{1.0cm}mag\_err\_ref &   float           &   DoPHOT reference mag uncertainty \\
+     \hspace{1.0cm}objtype       &   unsigned short  &   DoPHOT object type (1=star-like, $>$1=poor) \\
+     \hline
+     \multicolumn{3}{|l|}{\hspace{0.5cm}/data/sourcedata} \\
+     \hspace{1.0cm}flux       &   float           &   Difference flux \\
+     \hspace{1.0cm}flux\_err  &   float           &   Difference flux uncertainty \\
+     \hspace{1.0cm}flag       &   unsigned short  &   Flag (1 if flux=NaN, 0 otherwise) \\
+     \hline
+    \end{tabular}
+    \caption{HDF5 file structure with new columns highlighted in yellow.}
+    \label{tab:matchfile}
+    \end{table}
+
+\section{Transforming data to the magnitude scale}
+\label{sec:cals}
+
+To transform data to the magnitude scale, you need to know the raw magnitude of the object on the reference image $m_0$. Transform it to flux using $F_0 = 10^{-0.4 m_0}$. Then, the object magnitude $m_i = ZP - 2.5\log F_i$ and its uncertanity $\delta m_i = (2.5/\ln 10)\delta F_i/F_i$, where $F_i = F_0 + \Delta F_i$, here $\Delta F_i$ and $\delta F_i$ are the flux and flux uncertainty on the difference image. \textbf{Note 1:} Remember to check objtype! If objtype > 1, the object magnitude on the reference image may be incorrect. \textbf{Note 2:} Remember that the magnitudes are roughly calibrated.
+
+\section{Pulling out data}
+
+\subsection{radec2field}
+
+This program returns the field, ccd, and quadrant number of a given object, as well the PanSTARRS1 DR1 identifier of the star. The program queries Kowalski to get a list of objects located within a given radius (default: 2 arcsec) around a given position (ra, dec). The approximate position of the object on the ZTF camera is calculated by using ortographic projection with the origin at the center of the field of view. These calculations may fail if the object is located close to the edge of the field of view / edge of the reference image.
+
+\vspace{0.2cm}
+The program prints the matchfile name, PS1 object identifier, field number, ccd number, quadrant number, and angular distance (in arcsec) from the input coordinates to the standard output.
+
+\vspace{0.2cm}
+\noindent\fbox{%
+\parbox{\textwidth}{%
+Usage:\\
+{\tt > python3 radec2field.py [-{}-radius RADIUS] ra dec}\\
+% {\tt > python3 radec2field.py 319.225362  57.478848}\\
+% {\tt > python3 radec2field.py 319.225362  57.478848 -{}-radius 5.0}\\
+\\
+Example:\\
+{\tt > python3 radec2field.py 319.225362  57.478848 -{}-radius 5}\\
+\# matchfile PS1\_ID field ccd quad ang\_dist\\
+matchfiles/0801/data\_0801\_13\_4\_zr.h5 176973192253525335 801 13 4  0.00\\
+matchfiles/0802/data\_0802\_16\_4\_zr.h5 176973192253525335 802 16 4  0.00
+}%
+}
+
+\subsection{getobj}
+
+This program pulls out the light curve of a given object. The program prints BJD, differential flux and its uncertainty, flag (0 if a ``good'' measurement, 1 otherwise), and program ID to the standard output, along with a header providing the DoPHOT reference image instrumental magnitude and object type of the source along with column descriptions. Przemek originally wrote both a Python and C version of {\tt getobj}, but the C version is faster and is the only version that has continued to be updated to work with the newest HDF5 files.
+
+\vspace{0.2cm}
+If you run the C version with the argument ``-m'', two additional columns (magnitude and magnitude uncertainty) are also printed. These data should be used with caution! It is possible that the object magnitude on the reference image may be incorrect. You should always check the ''objtype'' flag. Lastly, if you run the C code with the ``-d'' option, 16 additional columns will be printed providing every parameter listed in Table~\ref{tab:matchfile} in the {\tt /data/exposures} table except for the {\tt jd} column since {\tt bjd} is already being provided.
+
+\small{
+\noindent\fbox{%
+\parbox{\textwidth}{%
+Usage:\\
+{\tt > python3 getobj.py matchfile object\_id}\\
+% {\tt > python3 getobj.py data\_0760\_12\_3\_zr.h5 166292286217537618} \\
+{\tt > getobj [-m] [-d] matchfile object\_id}\\
+% {\tt > getobj data\_0760\_12\_3\_zr.h5 166292286217537618} \\
+% {\tt > getobj -m matchfile object\_id}\\
+% {\tt > getobj -m data\_0760\_12\_3\_zr.h5 166292286217537618}\\
+\\
+Example:\\
+{\tt > getobj matchfiles/0760/data\_0760\_01\_1\_zg.h5 162172382472136243}\\
+\#\\
+\# Instrumental magnitude: -7.481 mag\\
+\# DoPHOT object type: 1\\
+\#\\
+\# Column Definitions:\\
+\# {\tt -{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-}\\
+\# bjd = Mid-exposure barycentric julian date, corrected using reference image central RA and Dec [days]\\
+\# diffimflux = Forced difference image PSF flux [DN]\\
+\# diffimfluxunc = 1-sigma uncertainty on diffimflux [DN]\\
+\# flag = 0 (if diffimflux is not NaN), or 1 (if diffimflux is NaN)\\
+\# pid = ZTF Program ID (1, 2, or 3)\\
+\# {\tt -{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-{}-}\\
+\#\\
+\# Column names in order:\\
+bjd diffimflux diffimfluxunc flag pid\\
+2458202.884757      2.842     27.128 0 1\\
+2458203.886925     36.680     38.914 0 2\\
+2458203.914523    -68.516     29.481 0 2\\
+}%
+}
+}
+
+\vspace{0.2cm}
+\noindent To compile the C version of the code, use the following command:
+
+{\small
+\begin{lstlisting}[language=bash,frame=single,xleftmargin=2pt]
+ > gcc -Wall -o getobj getobj.c matchfile\_pm.c -I /usr/local/hdf5/include/ -L /usr/local/hdf5/lib/ -lhdf5 -lm
+\end{lstlisting}
+}
+
+\vspace{0.2cm}
+\noindent You may need to install the HDF5 library \href{https://www.hdfgroup.org/downloads/hdf5}{https://www.hdfgroup.org/downloads/hdf5} and to add /usr/local/hdf5/lib to your LD\_LIBRARY\_PATH environmental variable.
+
+\section{Calibrating data}
+
+Every science image has a different zero point. All measurements are transformed to the common zero point taken from the header of the reference image ($ZP=26.275$ for all $r$-band images). To transform the magnitudes to the ZTF photometric system, you need to calculate the zero-point correction (which may be field and filter dependent) and add it to all magnitudes calculated in Section~\ref{sec:cals}. Use the {\tt calibrate\_to\_ZTF\_system.py} program to measure the zero-point correction.
+
+\vspace{0.2cm}
+\noindent\fbox{%
+\parbox{\textwidth}{%
+Usage:\\
+{\tt > python3 calibrate\_to\_ZTF\_system.py field ccd quad filter [-{}-radius]}\\
+% python3 calibrate\_to\_ZTF\_system.py 315 14 1 r -{}-radius 0.1 \\
+{\tt > python3 calibrate\_to\_ZTF\_system\_matchfile.py matchfile filter ra dec [-{}-radius]}\\
+% python3 calibrate\_to\_ZTF\_system\_matchfile.py data\_0821\_01\_2\_zr.h5 r 210.423 59.6397 -{}-radius 0.1 \\
+\\
+Example:\\
+{\tt > python3 calibrate\_to\_ZTF\_system.py 315 14 1 r -{}-radius 0.1} \\
+Zero-point correction = -0.16\\
+Number of common stars = 216
+}%
+}
+
+\vspace{0.2cm}
+This program compares photometry of stars from the standard pipeline with the DoPHOT output and calculates the median magnitude offset. By default, stars located within 0.01~deg of the field center are taken into account, but you can provide a larger search radius if you think you need more stars. This program needs access to DoPHOT output files. These are currently located only on hypernova in {\tt /matchfiles/data/res} (change the RESULTS\_DIR variable if needed). 
+
+\vspace{0.2cm}
+{\bf Note}: For convenience, and to lessen the amount of data that needs to be stored on schoty, these programs have already been run for all primary and secondary fields in the $g$ and $r$-bands, and the corrections have been stored in the files {\tt zero\_point\_corrections.txt} and {\tt zero\_point\_corrections\_secondary\_grid.txt} on the schoty computer in the {\tt /gdata/Data/Matchfiles} directory. These files are a bit out of date, however, and don't include the $i$-band corrections. A convenience script would also be useful for applying these automatically to the light curves generated by {\tt getobj}.
+
+
+\end{document}

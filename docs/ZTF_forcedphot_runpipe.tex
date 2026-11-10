@@ -1,0 +1,137 @@
+\documentclass[12pt]{article}
+%\usepackage{phase1}
+\usepackage{graphicx}
+\setlength{\topmargin}{1.5in}
+\usepackage{geometry}     
+\usepackage[table,svgnames]{xcolor}   
+\usepackage{amsmath, amssymb}
+\usepackage{float}
+\usepackage{xspace}
+\usepackage{subfigure}
+\usepackage{listings}
+\usepackage{multirow}
+\usepackage[hyphens]{url}
+\usepackage{listings}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=blue,
+}
+ 
+\urlstyle{same}
+\definecolor{mygray}{rgb}{0.98,0.95,0.98}
+\lstset{basicstyle=\footnotesize\ttfamily,
+        frame=none,
+        columns=flexible,
+        breaklines=true,
+        showstringspaces=false,
+        literate={~}{{\fontfamily{ptm}\selectfont \textasciitilde}}1 {'}{\textquotesingle}1,
+        backgroundcolor=\color{mygray}}
+\makeindex
+
+\geometry{left=0.75in, right=0.75in, top=0.75in, bottom=0.75in}
+
+\newcommand{\red}[1]{{\color{red} #1}}
+
+
+\begin{document}
+
+
+\vspace{-1cm}
+\title{Guide to Running the Caltech Stellar Group's ZTF Forced Photometry Pipeline\\ \vspace{0.5cm}
+\normalsize{Z. Vanderbosch et al.}}
+\vspace{-5cm}
+\date{\today}
+\maketitle
+
+\section{Introduction}
+
+This document outlines the instructions for running the Caltech stellar group's forced photometry pipeline.
+
+\section{Running the Pipeline}
+
+\begin{enumerate}
+    \item {\tt ssh} into the hypernova machine and {\tt cd} into the {\tt /data} directory:
+    \begin{lstlisting}[gobble=8,frame=single]
+        > ssh username@hypernova.caltech.edu
+        > cd /data
+    \end{lstlisting}
+
+    \item Prior to running the pipeline, you should check that you have the correct date limits set. In the {\tt psf\_phot\_pm\_metrics.py} script, there are two global variables near the top named {\tt PUBLIC\_DATE} and {\tt PRIVATE\_DATE}. These set the upper Julian Date limits for data that will be processed by the pipeline, where ``{\tt PUBLIC}'' refers to programID=1 data and ``{\tt PRIVATE}'' refers to programID=2 and 3 data. I typically set the public date to the cutoff for the most recent public data release (e.g. 2460071.5 or 2023 May 7 for DR18), and for private data I set the cutoff to the day I first start running the pipeline (e.g. 2460157.5 or 2023 August 1 for the last time I ran the pipeline during Fall of 2023). To make these edits, do the following:
+    \begin{lstlisting}[gobble=8,language=bash,frame=single, commentstyle=\small\color{red}\ttfamily]
+        > vi psf_phot_pm_metrics.py
+        ...
+        PUBLIC_DATE = 2460071.5  # Modify these upper Julian Date limits as appropriate
+        PRIVATE_DATE = 2460157.5
+        ...
+    \end{lstlisting}
+
+    \item The {\tt psf\_phot\_pm\_metrics.py} script contains the main pipeline program, but must be called once per quadrant per filter. To run the pipeline in batch mode, we have two bash scripts \newline({\tt run\_phot\_primary.sh} and {\tt run\_phot\_secondary.sh}) that iterate through all quadrant+filter combinations. These two scripts are nearly identical, but one contains the field range for the ZTF primary field grid, and the other has the field range for the secondary field grid. I typically modify the field ranges, though, so the scripts only process about 100 fields at a time. This way if something goes wrong during processing I am more likely to catch the issue before a large number of fields are affected. To modify the field ranges, use the following commands:
+    \begin{lstlisting}[gobble=8,language=bash,frame=single, commentstyle=\small\color{red}\ttfamily]
+        > vi run_phot_primary.sh
+        ...
+        field_start=245  # Modify to a smaller range or leave these parameters as-is
+        field_end=881
+        ...
+
+        > vi run_phot_secondary.sh
+        ...
+        field_start=1241  # Modify to a smaller range or leave these parameters as-is
+        field_end=1897
+        ...
+    \end{lstlisting}
+
+    \item Create a new shell session with {\tt screen} that can be detached later while continuing to run the pipeline:
+    \begin{lstlisting}[gobble=8,language=bash,frame=single, commentstyle=\small\color{red}\ttfamily]
+        > screen -S name  # name can be any string you'd like to name the session with
+    \end{lstlisting}
+    
+    \item Run the bash script to start the pipeline. Here you can optionally add on the name of a file that will be used to store logging information. By default the log file is {\tt pipeline.log} if no argument is provided. If a log file already exists, new logging info will just be appended to it.
+    \begin{lstlisting}[gobble=8,language=bash,frame=single, commentstyle=\small\color{red}\ttfamily]
+        > ./run_phot_primary.sh  # Sets log file to pipeline.log
+        OR
+        > ./run_phot_primary.sh example.log # Sets log file to example.log
+    \end{lstlisting}
+
+    \item Detach from the screen session with {\tt ctrl+a+d} and let the pipeline run. You can re-connect to the screen session at any time with
+    \begin{lstlisting}[gobble=8,language=bash,frame=single]
+        > screen -r name
+    \end{lstlisting}
+\end{enumerate}
+
+\section{Checking Logs for Processing Errors}
+
+The pipeline can fail on occasion, and for that purpose there is a log file within the {\tt /data} directory that stores information for each quadrant processed by the pipeline indicating whether processing was a success or failure. By default this file is called {\tt pipeline.log}, though the filename can be specified when running the {\tt run\_phot\_primary.sh} and {\tt run\_phot\_secondary.sh} scripts. Successful quadrants will have {\tt SUCCESS} printed next to them followed by a few lines of summary info while failed quadrants will have {\tt FAILED} printed next to them followed by the Python exception and traceback for debugging purposes. In many cases, simply re-running the pipeline on these failed quadrants works to correct any issues encountered. For this purpose, a python script {\tt checklog.py} can be run in the {\tt /data} directory. This script will check the log file specified with the {\tt -f} option (default = {\tt pipeline.log}) for any failed quadrants and save the quadrant IDs and filters to a file named {\tt failed\_quads.txt} while also printing out the failed quads for visual inspection. To rerun the pipeline on these fields, use the {\tt run\_phot\_rerun.sh} bash script, which loads in the {\tt failed\_quads.txt} file and only runs the pipeline on the listed quadrants. This time the default log file name will be {\tt pipeline\_rerun.log} to separate the re-run fields from the main log file, but again this can be specified when running the bash script. So the commands would look like:
+
+\begin{lstlisting}[gobble=4,language=bash,frame=single, commentstyle=\small\color{red}\ttfamily]
+    > python checklog.py [-f pipeline.log]
+    623 13 3 r  # field ccd quad filter
+    632 6 2 i
+    639 3 3 r
+    > ./run_phot_rerun.sh # Default log file set to pipeline_rerun.log
+\end{lstlisting}
+
+
+\section{Transferring HDF5 Matchfiles to Schoty}
+
+Once the pipeline has finished running, the new and updated HDF5 matchfiles need to be transferred to the Schoty machine where they can be accessed by other members of the group. There is another bash script {\tt copy\_matchfiles\_to\_schoty.sh} that uses rsync to accomplish this task. The only modifications required for this file are setting your Schoty username
+
+
+
+\section{Calculate Zero-Point Magnitude Offsets}
+
+To get forced photometry magnitudes onto the ZTF magnitude system, a zero-point offset needs to be applied. These offsets are calculated by comparing the light curve magnitudes from the forced photometry pipeline to the single-epoch light curves available through IRSA and calculating the average magnitude difference. There is a script ({\tt get\_zp\_corr.sh}) in the hypernova {\tt /data} directory that can be used to calculate these offsets and store them within a file that can then be transferred over to schoty. Running this script on all fields is fairly time-consuming, taking several weeks for just the primary grid fields, but it likely does not to be re-run each time the pipeline is run, as the offsets are unlikely to change by much with additional data. The last time these offsets were calculated was in December/January of 2023/2024 using the DR18 forced photometry light curves. To run the script, simply do the following:
+
+\vspace{0.2cm}
+\begin{lstlisting}[gobble=4,language=bash,frame=single, commentstyle=\small\color{red}\ttfamily]
+    > vi ./get_zp_corr.sh
+    ...
+    for field in {245..881}  # Change range to {1246..1896} for secondary fields
+    ...
+    > ./get_zp_corr.sh
+\end{lstlisting}
+
+\end{document}
